@@ -114,9 +114,12 @@ jobs:
         mv jks/icanfly.jks ./ICanFly.jks
 
     - name: Sign apk (${{ matrix.artifact_abi }})
+      env:
+        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
       run: |
         mkdir build
-        apksigner sign --ks ./ICanFly.jks --ks-key-alias ${{ secrets.KEY_ALIAS }} --key-pass pass:${{ secrets.KEYSTORE_PASSWORD }} --out "./build/I Can Fly.apk" ./src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
+        apksigner sign --ks ./ICanFly.jks --ks-key-alias "$KEY_ALIAS" --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEYSTORE_PASSWORD --out "./build/I Can Fly.apk" ./src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
 
     - name: Upload (${{ matrix.artifact_abi }})
       uses: actions/upload-artifact@v4
@@ -148,16 +151,6 @@ jobs:
       uses: swatinem/rust-cache@v2
       with:
         workspaces: './src-tauri -> target'
-
-    - name: Download assets
-      uses: robinraju/release-downloader@v1.10
-      with:
-        tag: assets-latest
-        fileName: "assets.zip"
-        out-file-path: "./src-tauri/"
-        
-    - name: Rename assets
-      run: move src-tauri\assets.zip src-tauri\assets
 
     - name: Install wget and unzip
       run: choco install wget unzip -y
