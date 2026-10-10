@@ -1,0 +1,38 @@
+{
+	"name": "i-can-fly",
+	"private": true,
+	"version": "0.1.0",
+	"type": "module",
+	"scripts": {
+		"icon": "npm run tauri icon -p public/icon.jpg",
+		"copy:cmd": "xcopy kotlin\\ src-tauri\\gen\\android\\app /s /Y /e /I",
+		"copy:sh": "cp -r kotlin/* src-tauri/gen/android/app/",
+		"tauri:android:dev": "tauri android dev",
+		"tauri:android:dev:cmd": "npm run copy:cmd&&npm run tauri:android:dev",
+		"tauri:android:dev:sh": "npm run copy:sh&&npm run tauri:android:dev",
+		"tauri:android:build": "tauri android build",
+		"tauri:android:build:cmd": "npm run copy:cmd&&npm run tauri:android:build",
+		"tauri:android:build:sh": "npm run copy:sh&&npm run tauri:android:build",
+		"dev": "vite",
+		"build": "vue-tsc --noEmit && vite build",
+		"preview": "vite preview",
+		"tauri": "tauri"
+	},
+	"dependencies": {
+		"@tauri-apps/api": "^2",
+		"@tauri-apps/plugin-http": "^2.8.1",
+		"@tauri-apps/plugin-opener": "^2",
+		"@varlet/ui": "^3.20.6",
+		"axios": "^1.20.0",
+		"vue": "^3.5.13",
+		"vue-router": "^5.4.0"
+	},
+	"devDependencies": {
+		"@tauri-apps/cli": "^2",
+		"@vitejs/plugin-vue": "^6.0.7",
+		"sass": "^1.105.1",
+		"typescript": "~6.0.3",
+		"vite": "^8.0.16",
+		"vue-tsc": "^3.3.5"
+	}
+}
