@@ -86,6 +86,16 @@ pub struct XrayOptions {
     tun_inbound_index: usize,
 }
 
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HeartbeatOptions {
+	base_url: String,
+	token: String,
+	session_id: String,
+	interval_seconds: u64,
+	expires_at: u64,
+}
+
 #[cfg(target_os = "windows")]
 fn windows_sets(config: VpnConfig, mut xray: XrayOptions) -> Result<Vec<String>, String> {
     use std::net::IpAddr;
@@ -156,11 +166,14 @@ pub async fn vpn_connect(
     mode: Option<VpnMode>,
     vpn_config: Option<VpnConfig>,
     xray: XrayOptions,
+	heartbeat: Option<HeartbeatOptions>,
     application_proxy: Option<ApplicationProxy>,
     mut application_routing: Option<ApplicationRouting>,
     mut domain_routing: Option<DomainRouting>,
     mut proxy_outbound_tag: Option<String>,
 ) -> Result<Value, String> {
+	#[cfg(not(target_os = "android"))]
+	let _ = heartbeat;
     // 兼容旧的应用白名单参数，同时禁止重复定义应用策略。
     if let Some(legacy) = application_proxy {
         if application_routing.is_some() {
@@ -247,7 +260,7 @@ pub async fn vpn_connect(
             call(
                 &app,
                 "connect",
-                serde_json::json!({ "vpnConfig": config, "xray": xray }),
+				serde_json::json!({ "vpnConfig": config, "xray": xray, "heartbeat": heartbeat }),
             )
         })
         .await

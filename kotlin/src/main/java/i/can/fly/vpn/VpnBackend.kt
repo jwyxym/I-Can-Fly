@@ -31,4 +31,8 @@ object VpnRuntime {
 	@Volatile
 	var lastError: String? = null
 		internal set
+
+	@Volatile
+	var heartbeatManaged: Boolean = false
+		internal set
 }

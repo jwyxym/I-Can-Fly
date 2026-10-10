@@ -76,12 +76,24 @@ export interface VpnStatus {
 	permissionPending: boolean;
 	lastError: string | null;
 	platform: string;
+	/** Android VPN 服务是否正在管理该会话的心跳。 */
+	heartbeatManaged?: boolean;
 	xray: XrayStatus;
+}
+
+export interface VpnHeartbeatOptions {
+	baseUrl: string;
+	token: string;
+	sessionId: string;
+	intervalSeconds: number;
+	expiresAt: number;
 }
 
 export interface VpnConnectOptions {
 	/** Android 强制使用 tun；其他平台默认 proxy。tun 创建系统 VPN 并注入 TUN 参数。 */
 	mode?: VpnMode;
+	/** 仅 Android：由前台服务发送心跳，参数只在内存中传递。 */
+	heartbeat?: VpnHeartbeatOptions;
 	/** 仅 tun 模式生效。 */
 	vpnConfig?: VpnConfig;
 	applicationRouting?: {
@@ -97,46 +109,55 @@ export interface VpnConnectOptions {
 }
 
 /** proxy/Windows TUN 在内核启动后返回；Android TUN 授权后提交服务启动。 */
-export const vpn = {
-	connect : async function (config : Object, routing?: VpnRoutingOptions) : Promise<boolean> {
+interface VpnApi {
+	connect: (config: Object, routing?: VpnRoutingOptions, heartbeat?: VpnHeartbeatOptions) => Promise<boolean>;
+	disconnect: () => Promise<void>;
+	getStatus: () => Promise<VpnStatus>;
+	status: (snapshot?: VpnStatus) => Promise<boolean>;
+}
+
+export const vpn: VpnApi = {
+	connect : async (config : Object, routing?: VpnRoutingOptions, heartbeat?: VpnHeartbeatOptions) : Promise<boolean> => {
 		try {
 			routing ??= await vpnSettings.connectionOptions();
 			if (routing?.applicationRouting && routing.applications !== undefined) {
 				throw new Error("Use applicationRouting or applications, not both");
 			}
-			const applicationRouting = routing?.applicationRouting ?? (routing?.applications !== undefined
+			const applicationRouting: ApplicationRoutingOptions | undefined = routing?.applicationRouting ?? (routing?.applications !== undefined
 				? { mode: "proxy" as const, applications: routing.applications } : undefined);
-			for (const policy of [applicationRouting, routing?.domainRouting]) {
+			const policies: (ApplicationRoutingOptions | DomainRoutingOptions | undefined)[] = [applicationRouting, routing?.domainRouting];
+			policies.forEach((policy: ApplicationRoutingOptions | DomainRoutingOptions | undefined): void => {
 				if (policy && policy.mode !== "proxy" && policy.mode !== "bypass") {
 					throw new Error("Routing mode must be proxy or bypass");
 				}
-			}
+			});
 			if (applicationRouting && applicationRouting.applications.length === 0
 				|| routing?.domainRouting && routing.domainRouting.domains.length === 0) {
 				throw new Error("Routing lists must not be empty");
 			}
-			const mode = applicationRouting || routing.domainRouting ? "tun" : routing.mode ?? "proxy";
-			const sets = Object.entries(config).map(([key, value]) => `${key}=${JSON.stringify(value)}`);
+			const mode: VpnMode = applicationRouting || routing.domainRouting ? "tun" : routing.mode ?? "proxy";
+			const sets: string[] = Object.entries(config).map(([key, value]: [string, unknown]): string => `${key}=${JSON.stringify(value)}`);
 			if (mode === 'proxy' && routing.proxyPort !== undefined) {
 				if (!Number.isInteger(routing.proxyPort) || routing.proxyPort < 1 || routing.proxyPort > 65535) {
 					throw new Error('Proxy 端口必须是 1–65535 的整数。');
 				}
-				const inbounds = (config as { inbounds?: { protocol?: string }[] }).inbounds;
-				const index = Array.isArray(inbounds) ? inbounds.findIndex(inbound =>
+				const inbounds: { protocol?: string }[] | undefined = (config as { inbounds?: { protocol?: string }[] }).inbounds;
+				const index: number = Array.isArray(inbounds) ? inbounds.findIndex((inbound: { protocol?: string }): boolean =>
 					inbound && ['socks', 'http', 'mixed'].includes(inbound.protocol ?? ''),
 				) : -1;
 				if (index < 0) throw new Error('配置中没有可设置端口的 SOCKS/HTTP 代理入站。');
 				sets.push(`inbounds[${index}].port=${routing.proxyPort}`);
 			}
-			if (await this.status()) {
-				await this.disconnect();
+			if (await vpn.status()) {
+				await vpn.disconnect();
 				return false;
 			}
 			const options: VpnConnectOptions = {
 				mode,
+				heartbeat,
 				applicationRouting: applicationRouting ? {
 					mode: applicationRouting.mode,
-					applications: applicationRouting.applications.map(application =>
+					applications: applicationRouting.applications.map((application: ProxyApplication): string =>
 						typeof application === "string" ? application
 							: "packageName" in application ? application.packageName : application.executablePath,
 					),
@@ -153,7 +174,7 @@ export const vpn = {
 					tunInboundIndex: 0,
 					sets,
 				},
-			}
+			};
 			return (await invoke<{ accepted: boolean }>("vpn_connect", { ...options })).accepted;
 		} catch (error) {
 			Snackbar.error(error instanceof Error ? error.message : String(error));
@@ -164,11 +185,11 @@ export const vpn = {
 		await invoke<void>("vpn_disconnect");
 	},
 	/** 原生完整状态，用于区分启动请求已提交和内核实际运行。 */
-	getStatus: () => invoke<VpnStatus>("vpn_status"),
+	getStatus: (): Promise<VpnStatus> => invoke<VpnStatus>("vpn_status"),
 	/** 可复用已查询的原生状态，避免同一次轮询重复调用原生接口。 */
 	status : async (snapshot?: VpnStatus) : Promise<boolean> => {
 		try {
-			const status = snapshot ?? await vpn.getStatus();
+			const status: VpnStatus = snapshot ?? await vpn.getStatus();
 			if (status.lastError)
 				return false;
 			return status.running;

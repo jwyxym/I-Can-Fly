@@ -8,6 +8,8 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import java.util.concurrent.Executors
@@ -16,6 +18,8 @@ class FlyVpnService : VpnService() {
 	// 跨服务实例共用队列，保证旧内核退出后才启动新内核。
 	private var tun: ParcelFileDescriptor? = null
 	private var backend: VpnBackend? = null
+	private var heartbeat: VpnHeartbeat? = null
+	private val mainHandler = Handler(Looper.getMainLooper())
 	@Volatile private var closing = false
 	@Volatile private var cleanupQueued = false
 
@@ -36,6 +40,7 @@ class FlyVpnService : VpnService() {
 			require(intent?.action == ACTION_START) { "Start VPN from the application" }
 			val config = VpnConfig.fromBundle(requireNotNull(intent?.getBundleExtra("config")))
 			val xray = intent?.getBundleExtra("xray")?.let { XrayVpnOptions.fromBundle(it) }
+			val heartbeatConfig = intent?.getBundleExtra("heartbeat")?.let { VpnHeartbeatConfig.fromBundle(it) }
 			worker.execute {
 				if (closing || VpnRuntime.stopping) {
 					requestStop()
@@ -44,6 +49,19 @@ class FlyVpnService : VpnService() {
 				if (tun != null) return@execute
 				try {
 					VpnRuntime.lastError = null
+					synchronized(this) {
+						check(!closing && !VpnRuntime.stopping) { "VPN connection cancelled" }
+						if (heartbeatConfig != null) heartbeat = VpnHeartbeat(this, heartbeatConfig) { owner, reason ->
+							mainHandler.post {
+								synchronized(this) {
+									if (!closing && heartbeat === owner) {
+										VpnRuntime.lastError = reason
+										requestStop()
+									}
+								}
+							}
+						}
+					}
 					check(prepare(this) == null) { "VPN permission was revoked" }
 					backend = if (xray != null) XrayVpnBackend(xray)
 						else checkNotNull(VpnRuntime.backendFactory) { "VPN backend is not registered" }.invoke()
@@ -57,8 +75,13 @@ class FlyVpnService : VpnService() {
 					tun = checkNotNull(builder.establish()) { "Cannot establish VPN interface" }
 					check(!closing && !VpnRuntime.stopping) { "VPN connection cancelled" }
 					backend!!.start(tun!!.fd, config) { fd -> !closing && protect(fd) }
-					VpnRuntime.running = !closing
-					VpnRuntime.starting = false
+					synchronized(this) {
+						check(!closing && !VpnRuntime.stopping) { "VPN connection cancelled" }
+						heartbeat?.start()
+						VpnRuntime.heartbeatManaged = heartbeat != null
+						VpnRuntime.running = true
+						VpnRuntime.starting = false
+					}
 				} catch (error: Throwable) {
 					report(error)
 					requestStop()
@@ -122,6 +145,9 @@ class FlyVpnService : VpnService() {
 		cleanupQueued = true
 		closing = true
 		VpnRuntime.stopping = true
+		heartbeat?.stop()
+		heartbeat = null
+		VpnRuntime.heartbeatManaged = false
 		// 系统可能仍绑定服务；不等待 onDestroy 才释放 TUN。
 		// 与启动共用队列，确保 nativeStart 返回后才停止内核、关闭 fd。
 		worker.execute {

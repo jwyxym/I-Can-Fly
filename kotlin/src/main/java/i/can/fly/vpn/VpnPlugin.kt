@@ -36,9 +36,20 @@ class XrayVpnArgs {
 }
 
 @InvokeArg
+class VpnHeartbeatArgs {
+	var baseUrl: String = ""
+	var token: String = ""
+	var sessionId: String = ""
+	var intervalSeconds: Long = 30
+	var expiresAt: Long = 0
+	internal fun toConfig() = VpnHeartbeatConfig(baseUrl, token, sessionId, intervalSeconds, expiresAt)
+}
+
+@InvokeArg
 class VpnConnectArgs {
 	var vpnConfig: VpnConfigArgs = VpnConfigArgs()
 	var xray: XrayVpnArgs? = null
+	var heartbeat: VpnHeartbeatArgs? = null
 }
 
 @TauriPlugin
@@ -58,6 +69,7 @@ class VpnPlugin(private val activity: Activity) : Plugin(activity) {
 			val args = invoke.parseArgs(VpnConnectArgs::class.java)
 			args.vpnConfig.toConfig()
 			requireNotNull(args.xray) { "Xray options are required" }.toOptions()
+			args.heartbeat?.toConfig()
 			VpnRuntime.lastError = null
 			val intent = VpnService.prepare(activity)
 			if (intent == null) start(invoke)
@@ -88,7 +100,7 @@ class VpnPlugin(private val activity: Activity) : Plugin(activity) {
 	private fun start(invoke: Invoke) {
 		try {
 			val args = invoke.parseArgs(VpnConnectArgs::class.java)
-			VpnController.start(activity, args.vpnConfig.toConfig(), requireNotNull(args.xray).toOptions())
+			VpnController.start(activity, args.vpnConfig.toConfig(), requireNotNull(args.xray).toOptions(), args.heartbeat?.toConfig())
 			val result = JSObject()
 			result.put("accepted", true)
 			invoke.resolve(result)
@@ -121,6 +133,7 @@ class VpnPlugin(private val activity: Activity) : Plugin(activity) {
 			result.put("permissionGranted", VpnService.prepare(activity) == null)
 			result.put("permissionPending", pendingConnect != null)
 			result.put("lastError", VpnRuntime.lastError ?: JSONObject.NULL)
+			result.put("heartbeatManaged", VpnRuntime.heartbeatManaged)
 			invoke.resolve(result)
 		} catch (error: Exception) {
 			fail(invoke, error)

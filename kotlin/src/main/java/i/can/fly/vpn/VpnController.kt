@@ -15,7 +15,7 @@ object VpnController {
 		})
 	}
 
-	internal fun start(context: Context, config: VpnConfig, xray: XrayVpnOptions? = null) {
+	internal fun start(context: Context, config: VpnConfig, xray: XrayVpnOptions? = null, heartbeat: VpnHeartbeatConfig? = null) {
 		check(xray != null || VpnRuntime.backendFactory != null) { "VPN backend is not registered" }
 		check(VpnService.prepare(context) == null) { "VPN permission is required" }
 		check(!VpnRuntime.running && !VpnRuntime.starting && !VpnRuntime.stopping) { "VPN is busy" }
@@ -25,6 +25,7 @@ object VpnController {
 				action = FlyVpnService.ACTION_START
 				putExtra("config", config.toBundle())
 				xray?.let { putExtra("xray", it.toBundle()) }
+				heartbeat?.let { putExtra("heartbeat", it.toBundle()) }
 			})
 		} catch (error: Exception) {
 			VpnRuntime.starting = false

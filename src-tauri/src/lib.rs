@@ -6,6 +6,8 @@ mod vpn_settings;
 #[cfg(target_os = "android")]
 mod vpn_jni;
 mod xray;
+#[cfg(target_os = "windows")]
+mod windows_tray;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -14,6 +16,20 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(vpn::init())
         .plugin(file_scanner::init())
+		.setup(|_app| {
+			#[cfg(target_os = "windows")]
+			windows_tray::init(_app)?;
+			Ok(())
+		})
+		.on_window_event(|_window, _event| {
+			#[cfg(target_os = "windows")]
+			if let tauri::WindowEvent::CloseRequested { api, .. } = _event {
+				api.prevent_close();
+				if let Err(error) = _window.hide() {
+					eprintln!("Failed to hide window to system tray: {error}");
+				}
+			}
+		})
         .invoke_handler(tauri::generate_handler![
             auth_storage::auth_load,
             auth_storage::auth_save,
