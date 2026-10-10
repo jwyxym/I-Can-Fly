@@ -217,28 +217,3 @@ jobs:
         name: "I Can Fly.msi"
         retention-days: 1
         path: ".\\build\\I Can Fly.msi"
-
-  create-release:
-    needs: [build-android, build-windows]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: build
-
-      - name: Create release-latest
-        run: |
-          cd build
-          gh release delete release-latest --cleanup-tag -y || true
-          gh release create release-latest $(find . -type f) \
-            --target "$GITHUB_SHA" \
-            --title "release-latest" \
-            --notes "Latest build for ${{ github.ref_name }}" \
-            --latest
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
